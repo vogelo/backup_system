@@ -1,0 +1,28 @@
+# Machine-specific configuration
+# Copy to /etc/backup/machine.toml
+
+# Machine identifier (used in paths, logs, kuma endpoints)
+name = "baloo"
+
+# Paths to scan for .backup / .coldstorage marker files
+scan_paths = [
+    "/home/olli",
+    "/data",
+]
+
+# Additional paths to always include in restic backup (no marker needed)
+extra_backup_paths = [
+    "/etc",
+]
+
+# MariaDB databases to backup (empty = none)
+databases = [
+    # "wordpress",
+    # "nextcloud",
+]
+
+# Uptime Kuma push URLs
+[kuma]
+backup = "https://kuma.example.com/api/push/xxxxx"
+verify = "https://kuma.example.com/api/push/yyyyy"
+deep_verify = "https://kuma.example.com/api/push/zzzzz"

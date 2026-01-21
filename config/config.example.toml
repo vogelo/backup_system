@@ -1,0 +1,48 @@
+# Common configuration - shared across all machines
+# Copy to /etc/backup/config.toml
+
+[restic]
+# Restic retention policy
+[restic.retention]
+hourly = 24
+daily = 7
+weekly = 4
+monthly = 12
+
+# Global exclude patterns (applied to all backups)
+exclude = [
+    "node_modules",
+    "__pycache__",
+    "*.pyc",
+    ".git",
+    ".cache",
+    "*.tmp",
+    "*.swp",
+    ".thumbnails",
+    "Cache",
+    "CachedData",
+]
+
+# Storage box for restic backups
+[restic.storage_box]
+host = "uXXXXXX.your-storagebox.de"
+user = "uXXXXXX"
+path = "/backups/restic"
+# ssh_key = "/root/.ssh/storagebox_key"  # optional, uses default if not set
+
+[cold_storage]
+# Base path to strip when creating remote paths
+# /home/olli/documents/taxes -> {machine}/documents/taxes
+base_path_strip = "/home/olli"
+
+# Primary cold storage location
+[cold_storage.storage_box]
+host = "uXXXXXX.your-storagebox.de"
+user = "uXXXXXX"
+path = "/cold"
+
+# Optional: redundant cold storage (second location)
+# [cold_storage.redundant_storage_box]
+# host = "uYYYYYY.your-storagebox.de"
+# user = "uYYYYYY"
+# path = "/cold"
