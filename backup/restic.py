@@ -142,3 +142,50 @@ def backup_database_dump(
         str(dump_path),
     ]
     _run_restic(config, args, password)
+
+
+def get_snapshots_json(config: Config, password: str, latest: int | None = None) -> list[dict]:
+    """Get snapshots as parsed JSON."""
+    import json
+    args = ["snapshots", "--json"]
+    if latest:
+        args.extend(["--latest", str(latest)])
+    result = _run_restic(config, args, password, capture_output=True)
+    if not result.stdout.strip():
+        return []
+    return json.loads(result.stdout)
+
+
+def get_stats(config: Config, password: str) -> dict:
+    """Get repository statistics."""
+    import json
+    result = _run_restic(config, ["stats", "--json"], password, capture_output=True)
+    return json.loads(result.stdout)
+
+
+def get_repo_info(config: Config, password: str) -> dict:
+    """Get comprehensive repository info for display."""
+    info = {
+        "repository": _get_repo_url(config),
+        "snapshots": [],
+        "stats": None,
+        "latest": None,
+    }
+
+    # Get all snapshots
+    snapshots = get_snapshots_json(config, password)
+    info["snapshots"] = snapshots
+
+    # Get latest snapshot details
+    if snapshots:
+        latest = get_snapshots_json(config, password, latest=1)
+        if latest:
+            info["latest"] = latest[0]
+
+    # Get stats
+    try:
+        info["stats"] = get_stats(config, password)
+    except ResticError:
+        pass
+
+    return info
