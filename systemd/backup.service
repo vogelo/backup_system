@@ -1,0 +1,17 @@
+[Unit]
+Description=Run backup (restic + databases)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/conda/envs/backup/bin/backup run
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+# Security hardening
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/backup
+NoNewPrivileges=true

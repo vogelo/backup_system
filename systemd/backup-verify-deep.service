@@ -1,0 +1,19 @@
+[Unit]
+Description=Verify backup integrity (deep check - reads all data)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/conda/envs/backup/bin/backup verify --deep
+Nice=19
+IOSchedulingClass=idle
+
+# Security hardening
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/backup
+NoNewPrivileges=true
+
+# Longer timeout for deep verification
+TimeoutStartSec=6h
