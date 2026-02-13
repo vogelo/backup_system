@@ -12,67 +12,123 @@ A backup system for Linux machines with Restic, MariaDB dumps, and cold storage 
 - **Secure password storage** - uses `keyrings.cryptfile`
 - **systemd timers** - hourly backups, daily/weekly verification
 
-## Installation
+## Quick Start
 
 ### 1. Install system dependencies
 
 ```bash
 # Arch Linux
-sudo pacman -S restic plocate
+sudo pacman -S restic plocate python
 
 # Enable plocate (for marker file scanning)
-sudo systemctl enable --now plocate-updatedb.timer
+sudo mkdir -p /etc/systemd/system/timers.target.wants
+sudo ln -s /usr/lib/systemd/system/plocate-updatedb.timer /etc/systemd/system/timers.target.wants/
+sudo systemctl daemon-reload
+sudo systemctl start plocate-updatedb.timer
 sudo updatedb
 ```
 
-### 2. Create conda environment
+### 2. Run the setup script
 
 ```bash
-conda create -n backup python=3.11
-conda activate backup
+./setup.py
 ```
 
-### 3. Install the package
+The interactive setup will:
+- Create a Python venv at `/opt/backup-venv`
+- Prompt for storage box details
+- Ask which paths to scan for `.backup` markers
+- Ask for Uptime Kuma push URLs (optional)
+- Create config files in `/etc/backup/`
+- Install and enable systemd timers
+- Initialize the restic repository (prompts for password)
+
+### 3. Mark folders for backup
 
 ```bash
-cd /path/to/backup_system
-pip install -e .
+# Include a folder in backups
+touch ~/documents/.backup
+touch ~/projects/.backup
+
+# Exclude a subfolder
+touch ~/projects/temp/.nobackup
+
+# Verify what will be backed up
+sudo backup scan
 ```
 
-### 4. Set up configuration
+## Marker Files
+
+Drop these empty files in directories to control backup behavior:
+
+| File | Effect |
+|------|--------|
+| `.backup` | Include this directory in restic backups |
+| `.nobackup` | Exclude this directory (overrides parent `.backup`) |
+| `.coldstorage` | Include in cold storage backup |
+| `.coldstorage_redundant` | Include in cold storage + redundant copy |
+
+The system uses `plocate` to efficiently find these markers before each backup.
+
+## Commands
+
+All commands require root (backups run as root):
 
 ```bash
-sudo mkdir -p /etc/backup
+# Show what would be backed up
+sudo backup scan
 
-# Copy and edit config files
-sudo cp config/config.example.toml /etc/backup/config.toml
-sudo cp config/machine.example.toml /etc/backup/machine.toml
+# Show current backup status and repo info
+sudo backup info
 
-sudo nano /etc/backup/config.toml   # Set storage box details
-sudo nano /etc/backup/machine.toml  # Set machine name, databases, scan paths
+# Run backup manually
+sudo backup run
+sudo backup run --dry-run
+
+# Verify backup integrity
+sudo backup verify          # Light check (fast, daily)
+sudo backup verify --deep   # Deep check (reads all data, weekly)
+
+# Cold storage
+sudo backup cold                    # Backup cold storage paths
+sudo backup cold --redundant        # Include redundant paths
+sudo backup status /path/to/folder  # Check if path is backed up
+sudo backup verify-cold             # Verify checksums
 ```
 
-### 5. Initialize
+## Scheduled Backups
 
+The setup script installs three systemd timers:
+
+| Timer | Schedule | What it does |
+|-------|----------|--------------|
+| `backup.timer` | **Hourly** | Runs `backup run` |
+| `backup-verify.timer` | **Daily** | Runs `backup verify` (light check) |
+| `backup-verify-deep.timer` | **Weekly** | Runs `backup verify --deep` |
+
+Check timer status:
 ```bash
-sudo backup init
+systemctl list-timers 'backup*'
+journalctl -u backup.service -f  # Watch backup logs
 ```
 
-This will:
-- Create `/var/lib/backup` state directory
-- Prompt for restic repository password (stored in keyring)
-- Initialize the restic repository on the storage box
-- Optionally set up MariaDB backup password
+## Uptime Kuma Integration
 
-### 6. Install systemd timers
+Create three push monitors in Uptime Kuma with different heartbeat expectations:
 
-```bash
-sudo systemd/install.sh
-```
+| Monitor | Expected Heartbeat |
+|---------|-------------------|
+| `backup-{machine}` | Every 1-2 hours |
+| `verify-{machine}` | Every 1-2 days |
+| `deep-verify-{machine}` | Every 1-2 weeks |
 
-## Configuration
+If any check fails, it pushes a DOWN status. If a timer doesn't fire, Kuma will alert on missing heartbeat.
 
-### `/etc/backup/config.toml` (shared across machines)
+## Configuration Files
+
+After setup, config lives in `/etc/backup/`:
+
+### `config.toml` (shared settings)
 
 ```toml
 [restic]
@@ -104,7 +160,7 @@ user = "uXXXXXX"
 path = "/cold"
 ```
 
-### `/etc/backup/machine.toml` (per machine)
+### `machine.toml` (per-machine settings)
 
 ```toml
 name = "baloo"
@@ -118,64 +174,6 @@ backup = "https://kuma.example.com/api/push/xxxxx"
 verify = "https://kuma.example.com/api/push/yyyyy"
 deep_verify = "https://kuma.example.com/api/push/zzzzz"
 ```
-
-## Marker Files
-
-Drop these files in directories to control backup behavior:
-
-| File | Effect |
-|------|--------|
-| `.backup` | Include this directory in restic backups |
-| `.nobackup` | Exclude this directory (overrides parent `.backup`) |
-| `.coldstorage` | Include in cold storage backup |
-| `.coldstorage_redundant` | Include in cold storage + redundant copy |
-
-## Commands
-
-```bash
-# Show what would be backed up
-backup scan
-
-# Show current backup status
-backup info
-
-# Run backup manually
-backup run
-backup run --dry-run
-
-# Verify backup integrity
-backup verify          # Light check (fast)
-backup verify --deep   # Deep check (reads all data)
-
-# Cold storage
-backup cold                    # Backup cold storage paths
-backup cold --redundant        # Include redundant paths
-backup status /path/to/folder  # Check if path is backed up
-backup verify-cold             # Verify checksums
-```
-
-## systemd Timers
-
-| Timer | Schedule | What it does |
-|-------|----------|--------------|
-| `backup.timer` | Hourly | Runs `backup run` |
-| `backup-verify.timer` | Daily | Runs `backup verify` |
-| `backup-verify-deep.timer` | Weekly | Runs `backup verify --deep` |
-
-Check timer status:
-```bash
-systemctl list-timers 'backup*'
-```
-
-## Uptime Kuma Setup
-
-Create three push monitors in Uptime Kuma:
-
-1. **backup-{machine}** - Heartbeat expected every 1-2 hours
-2. **verify-{machine}** - Heartbeat expected every 1-2 days
-3. **deep-verify-{machine}** - Heartbeat expected every 1-2 weeks
-
-Add the push URLs to your `machine.toml`.
 
 ## Restoring
 
@@ -199,13 +197,35 @@ restic restore latest --target /tmp/restore --include /path/to/file
 restic restore latest --target /tmp/restore
 ```
 
+## Manual Installation
+
+If you prefer not to use the setup script:
+
+```bash
+# Create venv
+sudo python3 -m venv /opt/backup-venv
+sudo /opt/backup-venv/bin/pip install -e /path/to/backup_system
+
+# Create configs manually
+sudo mkdir -p /etc/backup
+sudo cp config/config.example.toml /etc/backup/config.toml
+sudo cp config/machine.example.toml /etc/backup/machine.toml
+# Edit both files...
+
+# Initialize
+sudo /opt/backup-venv/bin/backup init
+
+# Install systemd timers
+sudo systemd/install.sh
+```
+
 ## Directory Structure
 
 ```
+/opt/backup-venv/           # Python venv (root-owned)
 /etc/backup/
-├── config.toml      # Shared config (storage boxes, retention, excludes)
-└── machine.toml     # Machine-specific (name, databases, kuma URLs)
-
+├── config.toml             # Shared config
+└── machine.toml            # Machine-specific config
 /var/lib/backup/
 └── {machine}_cold_checksums.json  # Cold storage tracking
 ```
