@@ -70,6 +70,51 @@ def check_dependencies():
         sys.exit(1)
 
 
+def fix_plocate_config():
+    """Fix plocate config for btrfs systems.
+
+    plocate incorrectly detects directories as bind mounts on btrfs,
+    causing it to skip /home. This sets PRUNE_BIND_MOUNTS = "no".
+    """
+    print("\n=== Checking plocate configuration ===")
+
+    updatedb_conf = Path("/etc/updatedb.conf")
+    if not updatedb_conf.exists():
+        print("  /etc/updatedb.conf not found, skipping")
+        return
+
+    content = updatedb_conf.read_text()
+
+    if 'PRUNE_BIND_MOUNTS = "yes"' in content:
+        print("  Fixing PRUNE_BIND_MOUNTS for btrfs compatibility...")
+        new_content = content.replace(
+            'PRUNE_BIND_MOUNTS = "yes"',
+            'PRUNE_BIND_MOUNTS = "no"'
+        )
+        run_sudo_sh(f"cat > /etc/updatedb.conf << 'EOF'\n{new_content}EOF")
+        print("  Set PRUNE_BIND_MOUNTS = \"no\"")
+    else:
+        print("  PRUNE_BIND_MOUNTS already set to \"no\" or not present")
+
+    # Rebuild plocate database
+    print("  Rebuilding plocate database...")
+    run_sudo(["updatedb"])
+
+    # Verify plocate can find files in /home
+    home = os.environ.get("HOME", "/home")
+    result = subprocess.run(
+        ["plocate", "-c", home],
+        capture_output=True,
+        text=True,
+    )
+    count = int(result.stdout.strip()) if result.returncode == 0 else 0
+    if count > 0:
+        print(f"  Verified: plocate indexed {count} files under {home}")
+    else:
+        print(f"  WARNING: plocate found no files under {home}")
+        print("  Marker file scanning may not work correctly.")
+
+
 def create_venv():
     """Create the system venv for root."""
     print(f"\n=== Creating venv at {VENV_PATH} ===")
@@ -276,6 +321,9 @@ def main():
 
     # Check dependencies
     check_dependencies()
+
+    # Fix plocate for btrfs
+    fix_plocate_config()
 
     # Gather configuration
     print("\n=== Configuration ===\n")
