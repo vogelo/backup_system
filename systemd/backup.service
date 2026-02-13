@@ -13,5 +13,5 @@ IOSchedulingPriority=7
 # Security hardening
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/backup
+ReadWritePaths=/var/lib/backup /var/lib/plocate
 NoNewPrivileges=true
