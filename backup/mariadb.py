@@ -3,7 +3,6 @@
 import subprocess
 import tempfile
 from pathlib import Path
-from datetime import datetime
 
 
 class MariaDBError(Exception):
@@ -28,8 +27,8 @@ def dump_database(
     Returns:
         Path to the dump file
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dump_file = output_dir / f"{database}_{timestamp}.sql"
+    # Use consistent filename (no timestamp) for better restic deduplication
+    dump_file = output_dir / f"{database}.sql"
 
     cmd = [
         "mariadb-dump",
