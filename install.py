@@ -233,8 +233,19 @@ def install_systemd():
     run_sudo(["systemctl", "daemon-reload"])
 
     for timer in ["backup.timer", "backup-verify.timer", "backup-verify-deep.timer"]:
-        run_sudo(["systemctl", "enable", "--now", timer])
-        print(f"  Enabled {timer}")
+        result = subprocess.run(
+            ["sudo", "systemctl", "enable", "--now", timer],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            print(f"  Enabled {timer}")
+        else:
+            print(f"  FAILED to enable {timer}: {result.stderr.strip()}")
+
+    # Show timer status
+    print("\nTimer status:")
+    subprocess.run(["systemctl", "list-timers", "backup*", "--no-pager"])
 
 
 def run_init():
