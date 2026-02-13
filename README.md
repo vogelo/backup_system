@@ -50,7 +50,7 @@ sudo ssh -p 23 uXXXXXX@uXXXXXX.your-storagebox.de ls
 ### 3. Run the setup script
 
 ```bash
-./setup.py
+./install.py
 ```
 
 The interactive setup will:
