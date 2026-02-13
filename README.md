@@ -28,7 +28,26 @@ sudo systemctl start plocate-updatedb.timer
 sudo updatedb
 ```
 
-### 2. Run the setup script
+### 2. Set up SSH access for root
+
+Backups run as root, so root needs SSH access to the storage box.
+
+```bash
+# Generate SSH key for root (if not exists)
+sudo ls /root/.ssh/id_ed25519.pub || sudo ssh-keygen -t ed25519
+
+# Show the public key
+sudo cat /root/.ssh/id_ed25519.pub
+```
+
+Add the public key to your storage box (e.g., via Hetzner Robot panel).
+
+```bash
+# Test connection (Hetzner uses port 23 for SFTP)
+sudo ssh -p 23 uXXXXXX@uXXXXXX.your-storagebox.de ls
+```
+
+### 3. Run the setup script
 
 ```bash
 ./setup.py
@@ -43,7 +62,7 @@ The interactive setup will:
 - Install and enable systemd timers
 - Initialize the restic repository (prompts for password)
 
-### 3. Mark folders for backup
+### 4. Mark folders for backup
 
 ```bash
 # Include a folder in backups
