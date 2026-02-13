@@ -87,9 +87,10 @@ def load_config(
 
     # Parse restic config
     restic_data = common.get("restic", {})
+    default_retention = {"hourly": 24, "daily": 7, "weekly": 4, "monthly": 12}
     restic = ResticConfig(
         storage_box=_parse_storage_box(restic_data["storage_box"]),
-        retention=restic_data.get("retention", ResticConfig.retention),
+        retention=restic_data.get("retention", default_retention),
         exclude=restic_data.get("exclude", []),
     )
 

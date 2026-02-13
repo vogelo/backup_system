@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/conda/envs/backup/bin/backup verify
+ExecStart=/opt/backup-venv/bin/backup verify
 Nice=15
 IOSchedulingClass=idle
 
