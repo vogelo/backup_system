@@ -6,3 +6,6 @@ dist/
 build/
 .eggs/
 snapshot/
+
+# Claude Code runtime lock (machine-local, must not be shared)
+.claude/scheduled_tasks.lock
