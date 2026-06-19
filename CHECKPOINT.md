@@ -19,6 +19,10 @@ rafiki/crush) that died silently — no Kuma ping — and went unnoticed for mon
 - Conda deployment, dead-man's-switch, self-healing locks, cache fix, scanner
   fixes, retention fix (stable DB dump path + `forget --group-by host,tags`),
   `--no-prune`, backlog prune. See git history `0e14907` / `f4d0f46`.
+- [x] **Exclude-ordering bug fixed + verified (2026-06-19)**: moved `exclude`
+      under `[restic]` in baloo's `/etc/backup/config.toml`, reinstalled
+      `fb51914`. Confirmed `/home/olli/.cache` (31 GB) now excluded; file
+      snapshot dropped 383.6 → 347.6 GiB. (Old `config.toml` saved as `.bak-*`.)
 
 ### rafiki (done this session)
 - [x] **Diagnosed**: backups dead since **2024-09** (~21 months). Legacy
@@ -51,16 +55,14 @@ rafiki/crush) that died silently — no Kuma ping — and went unnoticed for mon
   `[kuma]` URLs are empty → dead-man's-switch has nowhere to ping. Create
   monitors on `baloo.vogel-haus.de`, set heartbeat intervals (backup ~5400s,
   verify ~93600s, deep_verify ~691200s), then fill in the URLs.
-- **baloo has the exclude-ordering bug too** — its `/etc/backup/config.toml`
-  excludes are currently inert. Needs the one-line move + `git pull` + pip
-  reinstall into its env. (User is handling baloo; the DB-tag fix doesn't matter
-  there — baloo has 1 DB.)
+- **baloo `hyperliquid` DB dump slow**: `mariadb-dump` took ~10 min on two runs
+  (vs ~1–2 min earlier). Possibly transient DB load; watch if it persists.
 - **`backup info` cosmetic bug**: "latest" snapshot isn't sorted by time, so it
   can show an old snapshot. Not yet fixed (low priority).
 
 ## Next Steps
 
-1. **baloo** (user): apply the exclude fix; pull + reinstall to pick up `fb51914`.
+1. **baloo**: ✅ done — exclude fix applied + verified, `fb51914` deployed.
 2. **rafiki**: create + wire the 3 Kuma monitors; set heartbeat intervals.
 3. **crush**: deploy the new system (same process — read its legacy script for
    repo path/password, list its DBs, check influx/docker/secondary-repo).
