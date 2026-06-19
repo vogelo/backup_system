@@ -2,37 +2,65 @@
 
 ## Current Task / Goal
 
-Remediate and harden the backup system on **baloo**. A `/remote-control` health
-check revealed every backup run was failing, and the repo history showed the
-last good snapshot was **2026-04-06** — backups had been silently dead for
-**~2.5 months**. Root cause: a system Python 3.13→3.14 upgrade invalidated the
-`/opt/backup-venv` venv; the crash happened at import time, so the script never
-ran and never sent a Kuma ping (the failure was invisible).
+Roll the hardened backup system out across the fleet (**baloo**, **rafiki**,
+**crush**). All three back up to the same Hetzner storage box (user `u312848`)
+under per-machine repo paths. The common failure mode: machines were running an
+old setup (a venv on baloo, a hand-rolled `/root/scripts/restic_backup.sh` on
+rafiki/crush) that died silently — no Kuma ping — and went unnoticed for months.
+
+> Storage-box path quirk: restic connects on **port 22**, which is chrooted to
+> `/home`, while an interactive login (port 23) shows the unchrooted tree. So the
+> config `path` is the port-22 view: baloo `/backups/restic`, **rafiki `/restic`**
+> (repo at `/home/restic/rafiki` as seen on port 23). crush will be similar.
 
 ## What's Been Completed
 
-- [x] **Diagnosed** the outage (venv broke on Python upgrade; ~2.5 months stale; repo itself healthy/restorable to 2026-04-06)
-- [x] **Conda deployment**: root-owned Miniforge env (Python 3.14) at `/opt/miniforge/envs/backup`, non-editable install, `/usr/local/bin/backup` symlink, old venv removed
-- [x] **Dead-man's-switch**: `OnFailure=` → `backup-onfailure@.service` runs a stdlib-only notifier under the *system* python and pings Kuma `down` even when the env is broken — **verified firing in practice**
-- [x] **Self-healing locks**: `restic unlock` (stale-only) before each run; systemd run timeouts (backup 3h, verify 1h) so a hung run can't hold a lock forever
-- [x] **Cache fix**: `RESTIC_CACHE_DIR=/var/lib/backup/restic-cache` (systemd unsets `$HOME`)
-- [x] **Scanner fixes**: collapse nested `.backup` paths (mailarchive was double-backed-up + broke incremental); pass `.nobackup` dirs to restic as `--exclude` (were silently ignored)
-- [x] **Retention root cause + fix**: 1,205/1,240 snapshots were DB dumps with per-run temp paths, each a unique `forget` group that escaped pruning → fixed with `forget --group-by host,tags` + stable DB dump path (`/var/lib/backup/db-dumps`)
-- [x] `backup run --no-prune` flag (restore protection without triggering backlog prune)
-- [x] Cleared the stale lock that was blocking runs; repo unlocked
-- [x] Restoring protection via an incremental backup (in progress at checkpoint time)
+### baloo (done earlier)
+- Conda deployment, dead-man's-switch, self-healing locks, cache fix, scanner
+  fixes, retention fix (stable DB dump path + `forget --group-by host,tags`),
+  `--no-prune`, backlog prune. See git history `0e14907` / `f4d0f46`.
+
+### rafiki (done this session)
+- [x] **Diagnosed**: backups dead since **2024-09** (~21 months). Legacy
+      `restic-backup.sh` blocked on a stale restic lock from **2024-11-13**; no
+      alerting, so silent.
+- [x] **Cleared the stale lock** (the actual outage cause).
+- [x] Deployed the new system: conda env (Python 3.14.6) at
+      `/opt/miniforge/envs/backup`, `/usr/local/bin/backup`, notifier, 3 timers.
+- [x] **Reused the existing repo** `sftp:.../restic/rafiki` (185 GB, history
+      intact) + existing password; trusted the box's port-22 host key.
+- [x] Config: wholesale `extra_backup_paths = /etc /home /root /var/lib`
+      (excluding `/var/lib/mysql` live data, `/var/lib/docker`, our cache,
+      coredumps); **6 MariaDB DBs** dumped (KNX, hass, hyperliquid, kea, radius,
+      mysql) via root socket auth. Decisions: drop InfluxDB, drop the old local
+      `/mnt/backup` secondary repo.
+- [x] First backup in 21 months ran; all 6 DBs retained; **timer-triggered run
+      verified green** under the hardened unit. Legacy timer disabled + stopped.
+
+### Bugs found + fixed in the repo (commit `fb51914`)
+- [x] **Excludes were inert**: `exclude` placed under `[restic.retention]` parsed
+      as `restic.retention.exclude`; loader reads `restic.exclude` → no excludes
+      ever applied. Fixed in `config.example.toml` + `install.py`.
+- [x] **Multi-DB retention dropped all but one DB**: shared `database` tag +
+      `--group-by host,tags` collapsed every dump into one group. Fixed by
+      tagging each dump with its DB name (own retention group per DB).
 
 ## Open Questions / Blockers
 
-- **Prune backlog** (~1,190 snapshots): user approved running it after the current backup completes. Run deliberately/monitored; show dry-run keep/remove counts first.
-- **Kuma heartbeat intervals**: must be set in the Kuma UI (not code) so *missing* pings alert — the other half of the dead-man's-switch. Suggested: backup ~5400s, verify ~93600s, deep_verify ~691200s.
-- **`backup.timer` is currently stopped** — re-enable only after the backlog prune + full systemd-path validation.
-- Other machines running this system likely hit the same Python-upgrade trap → replay the fix there.
+- **rafiki Kuma**: 3 push monitors not yet created. `/etc/backup/machine.toml`
+  `[kuma]` URLs are empty → dead-man's-switch has nowhere to ping. Create
+  monitors on `baloo.vogel-haus.de`, set heartbeat intervals (backup ~5400s,
+  verify ~93600s, deep_verify ~691200s), then fill in the URLs.
+- **baloo has the exclude-ordering bug too** — its `/etc/backup/config.toml`
+  excludes are currently inert. Needs the one-line move + `git pull` + pip
+  reinstall into its env. (User is handling baloo; the DB-tag fix doesn't matter
+  there — baloo has 1 DB.)
+- **`backup info` cosmetic bug**: "latest" snapshot isn't sorted by time, so it
+  can show an old snapshot. Not yet fixed (low priority).
 
 ## Next Steps
 
-1. (on backup completion) Run the monitored backlog prune: `forget --prune --group-by host,tags` → keeps ~50, removes ~1,190.
-2. Validate the full systemd path: `systemctl start backup.service` succeeds under hardening + pings Kuma green.
-3. Re-enable `backup.timer`.
-4. Set Kuma heartbeat intervals in the UI.
-5. Roll the fixes out to the other machine(s).
+1. **baloo** (user): apply the exclude fix; pull + reinstall to pick up `fb51914`.
+2. **rafiki**: create + wire the 3 Kuma monitors; set heartbeat intervals.
+3. **crush**: deploy the new system (same process — read its legacy script for
+   repo path/password, list its DBs, check influx/docker/secondary-repo).
