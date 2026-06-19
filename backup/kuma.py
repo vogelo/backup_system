@@ -2,11 +2,18 @@
 
 import requests
 from enum import Enum
+from urllib.parse import urlparse, urlunparse
 
 
 class PushStatus(Enum):
     UP = "up"
     DOWN = "down"
+
+
+def _strip_query_params(url: str) -> str:
+    """Remove existing query params from URL."""
+    parsed = urlparse(url)
+    return urlunparse(parsed._replace(query=""))
 
 
 def push(
@@ -29,6 +36,9 @@ def push(
     if not url:
         return True  # No URL configured, that's fine
 
+    # Strip any existing query params (user may have copied full URL from Kuma)
+    base_url = _strip_query_params(url)
+
     params = {"status": status.value}
     if msg:
         params["msg"] = msg
@@ -36,7 +46,7 @@ def push(
         params["ping"] = str(ping)
 
     try:
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(base_url, params=params, timeout=10)
         return response.status_code == 200
     except requests.RequestException:
         return False

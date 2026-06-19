@@ -81,11 +81,11 @@ def scan_markers(scan_paths: list[str], update_db: bool = True) -> ScanResult:
     if update_db:
         update_locate_db()
 
-    # Find all marker files
-    backup_markers = _find_markers(r"\.backup$", scan_paths)
-    nobackup_markers = _find_markers(r"\.nobackup$", scan_paths)
-    cold_markers = _find_markers(r"\.coldstorage$", scan_paths)
-    cold_redundant_markers = _find_markers(r"\.coldstorage_redundant$", scan_paths)
+    # Find all marker files (patterns match exact filenames, not suffixes)
+    backup_markers = _find_markers(r"/\.backup$", scan_paths)
+    nobackup_markers = _find_markers(r"/\.nobackup$", scan_paths)
+    cold_markers = _find_markers(r"/\.coldstorage$", scan_paths)
+    cold_redundant_markers = _find_markers(r"/\.coldstorage_redundant$", scan_paths)
 
     # Get directories (parent of marker files)
     nobackup_dirs = _get_parent_dirs(nobackup_markers)
@@ -115,7 +115,16 @@ def get_effective_backup_paths(
     paths = set(scan_result.backup_paths)
     for extra in extra_paths:
         paths.add(Path(extra))
-    return sorted(paths)
+
+    # Collapse nested paths: if a backup path lives inside another backup path,
+    # the ancestor already covers it. Keeping both backs the child up twice and
+    # changes the snapshot's path set, which breaks restic's parent matching
+    # (forcing a full re-read of everything instead of an incremental backup).
+    collapsed = [
+        p for p in paths
+        if not any(other != p and other in p.parents for other in paths)
+    ]
+    return sorted(collapsed)
 
 
 def print_scan_result(result: ScanResult) -> None:

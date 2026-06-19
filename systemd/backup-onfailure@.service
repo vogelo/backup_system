@@ -1,0 +1,9 @@
+[Unit]
+Description=Notify Uptime Kuma that %i failed
+# Intentionally runs the SYSTEM python against a stdlib-only script -- NOT the
+# backup conda env -- so it still fires when that env is broken (the exact
+# failure mode that went unnoticed for 12 days in June 2026).
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/backup-notify-failure.py %i

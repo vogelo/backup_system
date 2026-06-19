@@ -1,14 +1,20 @@
 """MariaDB database backup operations."""
 
 import subprocess
-import tempfile
 from pathlib import Path
-from datetime import datetime
 
 
 class MariaDBError(Exception):
     """Error during MariaDB operation."""
     pass
+
+
+# Stable dump location (NOT a random temp dir). The path is recorded in the
+# restic snapshot, and retention's default grouping is by (host, paths); a
+# random per-run path made every DB snapshot a unique group that escaped
+# pruning. A fixed path keeps the snapshot path stable across runs. It lives
+# under /var/lib/backup, which is in every unit's ReadWritePaths.
+DB_DUMP_DIR = Path("/var/lib/backup/db-dumps")
 
 
 def dump_database(
@@ -28,8 +34,8 @@ def dump_database(
     Returns:
         Path to the dump file
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dump_file = output_dir / f"{database}_{timestamp}.sql"
+    # Use consistent filename (no timestamp) for better restic deduplication
+    dump_file = output_dir / f"{database}.sql"
 
     cmd = [
         "mariadb-dump",
@@ -70,20 +76,19 @@ def dump_all_databases(
         user: MariaDB user
 
     Returns:
-        List of paths to dump files (in temp directory)
+        List of paths to dump files (in DB_DUMP_DIR)
     """
-    temp_dir = Path(tempfile.mkdtemp(prefix="backup_db_"))
+    DB_DUMP_DIR.mkdir(parents=True, exist_ok=True)
     dump_files = []
 
     for db in databases:
         try:
-            dump_file = dump_database(db, temp_dir, password, user)
+            dump_file = dump_database(db, DB_DUMP_DIR, password, user)
             dump_files.append(dump_file)
         except MariaDBError:
             # Clean up on failure
             for f in dump_files:
                 f.unlink(missing_ok=True)
-            temp_dir.rmdir()
             raise
 
     return dump_files

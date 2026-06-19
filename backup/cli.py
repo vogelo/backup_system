@@ -11,7 +11,7 @@ from . import __version__
 from .config import load_config, COMMON_CONFIG, MACHINE_CONFIG, CONFIG_DIR
 from .scanner import scan_markers, print_scan_result, get_effective_backup_paths
 from .secrets import get_restic_password, set_restic_password, get_mariadb_password, set_mariadb_password
-from .restic import run_backup, run_forget_and_prune, run_check, init_repo, check_repo_exists, backup_database_dump, ResticError
+from .restic import run_backup, run_forget_and_prune, run_check, init_repo, check_repo_exists, backup_database_dump, get_repo_info, unlock_stale, ResticError
 from .mariadb import dump_all_databases, MariaDBError
 from .kuma import push_backup_success, push_backup_failure, push_verify_success, push_verify_failure
 from .cold import upload_to_cold_storage, get_cold_storage_status, verify_cold_storage, ColdStorageError
@@ -137,8 +137,9 @@ def init(ctx):
 
 @cli.command()
 @click.option("--dry-run", is_flag=True, help="Show what would be done without doing it")
+@click.option("--no-prune", is_flag=True, help="Skip the retention forget+prune step")
 @click.pass_context
-def run(ctx, dry_run: bool):
+def run(ctx, dry_run: bool, no_prune: bool):
     """Run backup (restic + databases)."""
     config = _require_config(ctx)
     password = _get_password(config.machine.name)
@@ -146,6 +147,10 @@ def run(ctx, dry_run: bool):
     click.echo(f"Running backup for {config.machine.name}...")
 
     try:
+        # Clear stale locks from any previously interrupted run, so a single
+        # hard-killed backup can't block this one (and every future one).
+        unlock_stale(config, password)
+
         # Scan for marker files
         click.echo("Scanning for backup markers...")
         scan_result = scan_markers(config.machine.scan_paths, update_db=True)
@@ -160,7 +165,8 @@ def run(ctx, dry_run: bool):
             click.echo(f"Backing up {len(paths)} paths...")
             for p in paths:
                 click.echo(f"  {p}")
-            run_backup(config, paths, password, dry_run=dry_run)
+            run_backup(config, paths, password, dry_run=dry_run,
+                       excludes=scan_result.nobackup_paths)
 
         # Backup databases
         if config.machine.databases:
@@ -181,7 +187,7 @@ def run(ctx, dry_run: bool):
                     shutil.rmtree(temp_dir)
 
         # Apply retention policy
-        if not dry_run:
+        if not dry_run and not no_prune:
             click.echo("Applying retention policy...")
             run_forget_and_prune(config, password)
 
@@ -206,6 +212,9 @@ def verify(ctx, deep: bool):
     click.echo(f"Running {mode} verification for {config.machine.name}...")
 
     try:
+        # Clear stale locks left by a previously interrupted run before checking.
+        unlock_stale(config, password)
+
         run_check(config, password, read_data=deep)
         click.echo("Verification passed!")
 
@@ -331,6 +340,72 @@ def verify_cold(ctx):
         click.echo("\nFailed files:")
         for f in failed:
             click.echo(f"  {f}")
+        sys.exit(1)
+
+
+@cli.command()
+@click.pass_context
+def info(ctx):
+    """Show current backup status and repository info."""
+    config = _require_config(ctx)
+    password = _get_password(config.machine.name)
+
+    click.echo(f"Backup info for {config.machine.name}")
+    click.echo("=" * 50)
+
+    try:
+        repo_info = get_repo_info(config, password)
+
+        click.echo(f"\nRepository: {repo_info['repository']}")
+
+        # Stats
+        if repo_info.get("stats"):
+            stats = repo_info["stats"]
+            total_size = stats.get("total_size", 0)
+            total_files = stats.get("total_file_count", 0)
+            size_mb = total_size / 1024 / 1024
+            size_gb = size_mb / 1024
+            if size_gb >= 1:
+                click.echo(f"Total size: {size_gb:.2f} GB ({total_files} files)")
+            else:
+                click.echo(f"Total size: {size_mb:.2f} MB ({total_files} files)")
+
+        # Snapshots summary
+        snapshots = repo_info.get("snapshots", [])
+        click.echo(f"Snapshots: {len(snapshots)}")
+
+        # Latest snapshot
+        latest = repo_info.get("latest")
+        if latest:
+            click.echo(f"\n--- Latest Backup ---")
+            click.echo(f"Time: {latest.get('time', 'unknown')}")
+            click.echo(f"Hostname: {latest.get('hostname', 'unknown')}")
+
+            paths = latest.get("paths", [])
+            if paths:
+                click.echo(f"Paths ({len(paths)}):")
+                for p in paths:
+                    click.echo(f"  {p}")
+
+            tags = latest.get("tags", [])
+            if tags:
+                click.echo(f"Tags: {', '.join(tags)}")
+
+            short_id = latest.get("short_id", latest.get("id", "")[:8])
+            click.echo(f"Snapshot ID: {short_id}")
+        else:
+            click.echo("\nNo backups yet.")
+
+        # Show configured paths for reference
+        click.echo(f"\n--- Configured ---")
+        click.echo(f"Scan paths: {', '.join(config.machine.scan_paths)}")
+        if config.machine.extra_backup_paths:
+            click.echo(f"Extra paths: {', '.join(config.machine.extra_backup_paths)}")
+        if config.machine.databases:
+            click.echo(f"Databases: {', '.join(config.machine.databases)}")
+
+    except ResticError as e:
+        click.echo(f"Failed to get repo info: {e}", err=True)
         sys.exit(1)
 
 

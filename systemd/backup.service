@@ -2,16 +2,22 @@
 Description=Run backup (restic + databases)
 After=network-online.target
 Wants=network-online.target
+OnFailure=backup-onfailure@%n.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/conda/envs/backup/bin/backup run
+ExecStart=/opt/miniforge/envs/backup/bin/backup run
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
 
+# Bound a hung run so it can't hold a repo lock indefinitely. On timeout
+# systemd kills it; restic cleans up on SIGTERM, and any leftover lock is
+# cleared by the next run's stale-lock unlock. Tune up if a real backup needs longer.
+TimeoutStartSec=3h
+
 # Security hardening
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/var/lib/backup
+ReadWritePaths=/var/lib/backup /var/lib/plocate
 NoNewPrivileges=true

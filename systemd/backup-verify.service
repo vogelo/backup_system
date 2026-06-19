@@ -2,12 +2,16 @@
 Description=Verify backup integrity (light check)
 After=network-online.target
 Wants=network-online.target
+OnFailure=backup-onfailure@%n.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/conda/envs/backup/bin/backup verify
+ExecStart=/opt/miniforge/envs/backup/bin/backup verify
 Nice=15
 IOSchedulingClass=idle
+
+# Bound a hung run so it can't hold a repo lock indefinitely (see backup.service).
+TimeoutStartSec=1h
 
 # Security hardening
 PrivateTmp=true

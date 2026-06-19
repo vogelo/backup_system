@@ -2,10 +2,11 @@
 Description=Verify backup integrity (deep check - reads all data)
 After=network-online.target
 Wants=network-online.target
+OnFailure=backup-onfailure@%n.service
 
 [Service]
 Type=oneshot
-ExecStart=/opt/conda/envs/backup/bin/backup verify --deep
+ExecStart=/opt/miniforge/envs/backup/bin/backup verify --deep
 Nice=19
 IOSchedulingClass=idle
 
