@@ -49,6 +49,11 @@ def _run_restic(
             pass
         env["RESTIC_CACHE_DIR"] = RESTIC_CACHE_DIR
 
+    # Under systemd, stdout isn't a TTY, so restic prints nothing until the end.
+    # A low progress FPS makes it emit a status line periodically (~once/minute)
+    # into the journal. An explicit env var still wins.
+    env.setdefault("RESTIC_PROGRESS_FPS", "0.0166")
+
     # Add SSH key if specified
     if config.restic.storage_box.ssh_key:
         env["RESTIC_SFTP_ARGS"] = f"-i {config.restic.storage_box.ssh_key}"
