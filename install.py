@@ -208,12 +208,10 @@ def create_config(machine_name: str, backup_paths: list[str], scan_paths: list[s
     common_config = f'''# Backup system common configuration
 
 [restic]
-[restic.retention]
-hourly = 24
-daily = 7
-weekly = 4
-monthly = 12
-
+# Exclude patterns MUST stay under [restic], before any [restic.*] sub-table:
+# in TOML a key after a sub-table header binds to that sub-table, so placing
+# `exclude` after [restic.retention] makes it restic.retention.exclude and the
+# loader (reading restic.exclude) silently gets no excludes.
 exclude = [
     "node_modules",
     "__pycache__",
@@ -226,6 +224,12 @@ exclude = [
     "Cache",
     "CachedData",
 ]
+
+[restic.retention]
+hourly = 24
+daily = 7
+weekly = 4
+monthly = 12
 
 [restic.storage_box]
 host = "{storage_host}"

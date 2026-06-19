@@ -158,11 +158,13 @@ def run_forget_and_prune(config: Config, password: str) -> None:
     args = [
         "forget",
         "--prune",
-        # Group by host+tags, NOT paths. Database dumps land in a per-run path,
-        # so grouping by paths makes every dump its own group of one and
-        # retention never prunes them (this is how 1200+ snapshots piled up).
-        # Grouping by tags puts all 'database' snapshots in one bucket so the
-        # keep-* policy actually applies.
+        # Group by host+tags, NOT paths. With restic's default (host,paths) the
+        # old per-run dump paths made every DB snapshot its own group of one, so
+        # retention never pruned them (this is how 1200+ snapshots piled up).
+        # Grouping by tags fixes that. Each database dump carries a distinct
+        # per-database tag (see backup_database_dump), so every database forms
+        # its own retention group and keep-* applies per database; file backups
+        # (no tags) share a single group.
         "--group-by", "host,tags",
         "--keep-hourly", str(retention.get("hourly", 24)),
         "--keep-daily", str(retention.get("daily", 7)),
@@ -200,10 +202,22 @@ def backup_database_dump(
     password: str,
     tag: str = "database",
 ) -> None:
-    """Backup a database dump file."""
+    """Backup a database dump file.
+
+    Tags the snapshot with both the generic `tag` ("database") and the database
+    name (the dump file stem). The per-database tag is REQUIRED for correct
+    retention: forget groups by (host, tags), so if every dump carried only the
+    shared "database" tag they would all fall in one group and keep-hourly/daily
+    /... would collapse them to a single surviving snapshot per run -- silently
+    dropping every database but the last one dumped (on a multi-DB host this
+    means most databases have no retained backup). A distinct per-database tag
+    puts each database in its own retention group, and also makes restores
+    selectable with `restic snapshots --tag <db>`.
+    """
     args = [
         "backup",
         "--tag", tag,
+        "--tag", dump_path.stem,
         str(dump_path),
     ]
     _run_restic(config, args, password)

@@ -2,14 +2,12 @@
 # Copy to /etc/backup/config.toml
 
 [restic]
-# Restic retention policy
-[restic.retention]
-hourly = 24
-daily = 7
-weekly = 4
-monthly = 12
-
-# Global exclude patterns (applied to all backups)
+# Global exclude patterns (applied to all backups).
+# NOTE: this MUST stay directly under [restic], before any [restic.*] sub-table.
+# In TOML every key after a sub-table header belongs to that sub-table, so if
+# `exclude` is placed after [restic.retention] it silently becomes
+# restic.retention.exclude and the loader (which reads restic.exclude) gets
+# nothing -- i.e. NO excludes are applied.
 exclude = [
     "node_modules",
     "__pycache__",
@@ -22,6 +20,13 @@ exclude = [
     "Cache",
     "CachedData",
 ]
+
+# Restic retention policy
+[restic.retention]
+hourly = 24
+daily = 7
+weekly = 4
+monthly = 12
 
 # Storage box for restic backups
 [restic.storage_box]
